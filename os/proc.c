@@ -1,4 +1,5 @@
 #include "proc.h"
+#include "timer.h"
 #include "defs.h"
 #include "loader.h"
 #include "trap.h"
@@ -31,6 +32,13 @@ void proc_init(void)
 		p->kstack = (uint64)kstack[p - pool];
 		p->ustack = (uint64)ustack[p - pool];
 		p->trapframe = (struct trapframe *)trapframe[p - pool];
+
+		for (int i = 0; i < MAX_SYSCALL_NUM; ++i) {
+			p->task_info.syscall_times[i] = 0;
+		}
+
+		p->task_info.status = UnInit;
+		p->task_info.time = 0;
 		/*
 		* LAB1: you may need to initialize your new fields of proc here
 		*/
@@ -84,7 +92,11 @@ void scheduler(void)
 				/*
 				* LAB1: you may need to init proc start time here
 				*/
+				uint64 start_time = (get_cycle() % CPU_FREQ) *
+						    1000 / CPU_FREQ;
+				p->task_info.time = start_time;
 				p->state = RUNNING;
+				p->task_info.status = Running;
 				current_proc = p;
 				swtch(&idle.context, &p->context);
 			}
@@ -120,6 +132,7 @@ void exit(int code)
 	struct proc *p = curr_proc();
 	infof("proc %d exit with %d", p->pid, code);
 	p->state = UNUSED;
+	p->task_info.status = Exited;
 	finished();
 	sched();
 }
