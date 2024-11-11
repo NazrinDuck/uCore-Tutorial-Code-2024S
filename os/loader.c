@@ -1,4 +1,5 @@
 #include "loader.h"
+#include "timer.h"
 #include "defs.h"
 #include "trap.h"
 
@@ -7,7 +8,8 @@ static uint64 *app_info_ptr;
 extern char _app_num[];
 
 // Count finished programs. If all apps exited, shutdown.
-int finished()
+int
+finished()
 {
 	static int fin = 0;
 	if (++fin >= app_num)
@@ -16,14 +18,16 @@ int finished()
 }
 
 // Get user progs' infomation through pre-defined symbol in `link_app.S`
-void loader_init()
+void
+loader_init()
 {
 	app_info_ptr = (uint64 *)_app_num;
 	app_num = *app_info_ptr;
 	app_info_ptr++;
 }
 
-pagetable_t bin_loader(uint64 start, uint64 end, struct proc *p)
+pagetable_t
+bin_loader(uint64 start, uint64 end, struct proc *p)
 {
 	pagetable_t pg = uvmcreate();
 	if (mappages(pg, TRAPFRAME, PGSIZE, (uint64)p->trapframe,
@@ -57,18 +61,25 @@ pagetable_t bin_loader(uint64 start, uint64 end, struct proc *p)
 	p->trapframe->sp = p->ustack + USTACK_SIZE;
 	p->max_page = PGROUNDUP(p->ustack + USTACK_SIZE - 1) / PAGE_SIZE;
 	p->program_brk = p->ustack + USTACK_SIZE;
-        p->heap_bottom = p->ustack + USTACK_SIZE;
+	p->heap_bottom = p->ustack + USTACK_SIZE;
 	return pg;
 }
 
 // load all apps and init the corresponding `proc` structure.
-int run_all_app()
+int
+run_all_app()
 {
 	for (int i = 0; i < app_num; ++i) {
 		struct proc *p = allocproc();
 		tracef("load app %d", i);
 		bin_loader(app_info_ptr[i], app_info_ptr[i + 1], p);
 		p->state = RUNNABLE;
+		p->task_info->status = Ready;
+
+		uint64 cycle = get_cycle();
+		p->task_info->time = ((cycle % CPU_FREQ) * 1000 / CPU_FREQ);
+		p->task_info->status = UnInit;
+
 		/*
 		* LAB1: you may need to initialize your new fields of proc here
 		*/
