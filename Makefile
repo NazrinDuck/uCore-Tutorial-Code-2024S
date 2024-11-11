@@ -101,7 +101,7 @@ QEMUOPTS = \
 	-nographic \
 	-machine virt \
 	-bios $(BOOTLOADER) \
-	-kernel build/kernel	\
+	-kernel build/kernel \
 
 run: build/kernel
 	$(QEMU) $(QEMUOPTS)
