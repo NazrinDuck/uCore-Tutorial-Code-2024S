@@ -1,38 +1,49 @@
 #include "trap.h"
+#include "proc.h"
+#include "riscv.h"
+#include "types.h"
+#include "vm.h"
+#include "kalloc.h"
 #include "defs.h"
 #include "loader.h"
+#include "log.h"
 #include "syscall.h"
 #include "timer.h"
 
 extern char trampoline[], uservec[];
 extern char userret[];
 
-void kerneltrap()
+void
+kerneltrap()
 {
 	if ((r_sstatus() & SSTATUS_SPP) == 0)
 		panic("kerneltrap: not from supervisor mode");
-	panic("trap from kerne");
+	panic("trap from kernel");
 }
 
 // set up to take exceptions and traps while in the kernel.
-void set_usertrap(void)
+void
+set_usertrap(void)
 {
 	w_stvec(((uint64)TRAMPOLINE + (uservec - trampoline)) & ~0x3); // DIRECT
 }
 
-void set_kerneltrap(void)
+void
+set_kerneltrap(void)
 {
 	w_stvec((uint64)kerneltrap & ~0x3); // DIRECT
 }
 
 // set up to take exceptions and traps while in the kernel.
-void trap_init(void)
+void
+trap_init(void)
 {
 	// intr_on();
 	set_kerneltrap();
 }
 
-void unknown_trap()
+void
+unknown_trap()
 {
 	errorf("unknown trap: %p, stval = %p", r_scause(), r_stval());
 	exit(-1);
@@ -42,7 +53,8 @@ void unknown_trap()
 // handle an interrupt, exception, or system call from user space.
 // called from trampoline.S
 //
-void usertrap()
+void
+usertrap()
 {
 	set_kerneltrap();
 	struct trapframe *trapframe = curr_proc()->trapframe;
@@ -69,17 +81,33 @@ void usertrap()
 			trapframe->epc += 4;
 			syscall();
 			break;
+		case LoadAccessFault:
+		case StoreAccessFault:
+			errorf("pagefault at %p, instruction at: %p", r_stval(),
+			       trapframe->epc);
+			void *mem = kalloc();
+			uint64 fpage = r_stval() & (~0xfff);
+			debugf("handling pagefault at %p, cause: %d", r_stval(),
+			       cause);
+			if (user_pagefault(curr_proc()->pagetable, fpage,
+					   (uint64)mem) != 0) {
+				kfree(mem);
+				errorf("can't handle pagefault at %p, instruction at: %p",
+				       r_stval(), trapframe->epc);
+				exit(-4);
+			};
+			break;
+		case LoadPageFault:
+		case StorePageFault:
+		case InstructionPageFault:
 		case StoreMisaligned:
-                case StorePageFault:
-                case InstructionMisaligned:
-                case InstructionPageFault:
-                case LoadMisaligned:
-                case LoadPageFault:
-                        errorf("%d in application, bad addr = %p, bad instruction = %p, "
-                               "core dumped.",
-                               cause, r_stval(), trapframe->epc);
-                        exit(-2);
-                        break;
+		case InstructionMisaligned:
+		case LoadMisaligned:
+			errorf("%d in application, bad addr = %p, bad instruction = %p, "
+			       "core dumped.",
+			       cause, r_stval(), trapframe->epc);
+			exit(-2);
+			break;
 		case IllegalInstruction:
 			errorf("IllegalInstruction in application, core dumped.");
 			exit(-3);
@@ -95,7 +123,8 @@ void usertrap()
 //
 // return to user space
 //
-void usertrapret()
+void
+usertrapret()
 {
 	set_usertrap();
 	struct trapframe *trapframe = curr_proc()->trapframe;
@@ -121,4 +150,3 @@ void usertrapret()
 	tracef("return to user @ %p", trapframe->epc);
 	((void (*)(uint64, uint64))fn)(TRAPFRAME, satp);
 }
-

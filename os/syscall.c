@@ -106,15 +106,17 @@ sys_mmap(void *start, unsigned long long len, int port, int flag, int fd)
 	if (len == 0) {
 		return 0;
 	}
+
 	int result = 0;
 	struct proc *p = curr_proc();
 
 	len = (len & (~0xfff)) + ((len & 0xfff) > 0 ? PAGE_SIZE : 0);
-	debugf("adjust to new len: %d", len);
 
 	for (uint64 i = 0; i < len; i += PAGE_SIZE) {
+#ifdef NOT_USE_LAZY_MMAP
 		result |= mappages(p->pagetable, (uint64)start + i, PAGE_SIZE,
 				   (uint64)kalloc(), (port << 1) | PTE_U);
+		result = 0;
 		if (result != 0) {
 			if (i != 0) {
 				uvmunmap(p->pagetable,
@@ -123,7 +125,13 @@ sys_mmap(void *start, unsigned long long len, int port, int flag, int fd)
 			}
 			return -1;
 		}
-		debugf("mmap %p with one page", start + i);
+#else
+		result |= lazy_mappages(p->pagetable, (uint64)start + i,
+					PAGE_SIZE, (port << 1) | PTE_U);
+		if (result != 0) {
+			return -1;
+		}
+#endif /* ifdef NOT_USE_LAZY_MMAP */
 	}
 
 	return 0;
@@ -144,8 +152,9 @@ sys_munmap(void *start, unsigned long long len)
 	struct proc *p = curr_proc();
 
 	len = (len & (~0xfff)) + ((len & 0xfff) > 0 ? PAGE_SIZE : 0);
-	int napges = (len >> 12);
 
+#ifdef NOT_USE_LAZY_MMAP
+	int napges = (len >> 12);
 	for (int i = 0; i < napges; ++i) {
 		if (walkaddr(p->pagetable, (uint64)start + (i * PAGE_SIZE)) ==
 		    0) {
@@ -154,6 +163,22 @@ sys_munmap(void *start, unsigned long long len)
 	}
 
 	uvmunmap(p->pagetable, (uint64)start, napges, 1);
+#else
+	uint64 a = (uint64)start;
+	for (; a < (uint64)start + len; a += PAGE_SIZE) {
+		switch (walkaddr(p->pagetable, a)) {
+		case 0:
+			return -1;
+			break;
+		case 1:
+			lazy_uvmunmap(p->pagetable, a);
+			break;
+		default:
+			uvmunmap(p->pagetable, a, 1, 1);
+			break;
+		}
+	}
+#endif /* ifdef NOT_USE_LAZY_MMAP */
 
 	return 0;
 }

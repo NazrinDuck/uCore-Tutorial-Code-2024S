@@ -88,6 +88,8 @@ walkaddr(pagetable_t pagetable, uint64 va)
 	if ((*pte & PTE_U) == 0)
 		return 0;
 	pa = PTE2PA(*pte);
+	if (pa == 0)
+		return 1;
 	return pa;
 }
 
@@ -127,7 +129,7 @@ mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
 		if ((pte = walk(pagetable, a, 1)) == 0)
 			return -1;
 		if (*pte & PTE_V) {
-			errorf("remap");
+			errorf("same address remap");
 			return -1;
 		}
 		*pte = PA2PTE(pa) | perm | PTE_V;
@@ -137,6 +139,49 @@ mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
 		pa += PGSIZE;
 	}
 	return 0;
+}
+
+// Alloc pages in a lazy way
+int
+lazy_mappages(pagetable_t pagetable, uint64 va, uint64 size, int perm)
+{
+	uint64 a, last;
+	pte_t *pte;
+
+	a = PGROUNDDOWN(va);
+	last = PGROUNDDOWN(va + size - 1);
+	for (;;) {
+		if ((pte = walk(pagetable, a, 1)) == 0)
+			return -1;
+		if (*pte & PTE_V) {
+			errorf("same address remap");
+			return -1;
+		}
+		*pte = perm | PTE_V;
+		if (a == last)
+			break;
+		a += PGSIZE;
+	}
+	return 0;
+}
+
+// Handle user pagefault
+int
+user_pagefault(pagetable_t pagetable, uint64 va, uint64 pa)
+{
+	uint64 a = PGROUNDDOWN(va);
+	pte_t *pte;
+
+	if ((pte = walk(pagetable, a, 0)) == 0) {
+		return -1;
+	}
+
+	if (*pte & PTE_V) {
+		*pte |= PA2PTE(pa);
+		return 0;
+	}
+
+	return -1;
 }
 
 // Remove npages of mappings starting from va. va must be
@@ -164,6 +209,26 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
 		}
 		*pte = 0;
 	}
+}
+void
+lazy_uvmunmap(pagetable_t pagetable, uint64 va)
+{
+	pte_t *pte;
+
+	if ((va % PGSIZE) != 0)
+		panic("lazy_uvmunmap: not aligned");
+
+	if ((pte = walk(pagetable, va, 0)) == 0) {
+		return;
+	}
+
+	if ((*pte & PTE_V) != 0) {
+		if (PTE_FLAGS(*pte) == PTE_V)
+			panic("lazy_uvmunmap: not a leaf");
+	}
+	if (PTE2PA(*pte) != 0)
+		panic("lazy_uvmunmap: not a lazy mapped address");
+	*pte = 0;
 }
 
 // create an empty user page table.
