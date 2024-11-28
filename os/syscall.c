@@ -94,24 +94,64 @@ uint64 sys_wait(int pid, uint64 va)
 
 uint64 sys_spawn(uint64 va)
 {
+	struct proc *np;
+	struct proc *p = curr_proc();
+
+	char name[200];
+	copyinstr(p->pagetable, name, va, 200);
+	debugf("sys_spawn %s\n", name);
+
+	if ((np = allocproc()) == 0) {
+		return -1;
+	}
+
+	int id = get_id_by_name(name);
+	if (id < 0)
+		return -1;
+
+	loader(id, np);
+	np->parent = p;
+
+	add_task(np);
+	/*
+  	struct proc *np;
+	struct proc *p = curr_proc();
+	// Allocate process.
+	if ((np = allocproc()) == 0) {
+		panic("allocproc\n");
+	}
+	// Copy user memory from parent to child.
+	if (uvmcopy(p->pagetable, np->pagetable, p->max_page) < 0) {
+		panic("uvmcopy\n");
+	}
+	np->max_page = p->max_page;
+	// copy saved user registers.
+	*(np->trapframe) = *(p->trapframe);
+	// Cause fork to return 0 in the child.
+	np->trapframe->a0 = 0;
+	np->parent = p;
+	np->state = RUNNABLE;
+	add_task(np);
+	return np->pid;
+ */
 	// TODO: your job is to complete the sys call
 	return -1;
 }
 
-uint64 sys_set_priority(long long prio){
-    // TODO: your job is to complete the sys call
-    return -1;
+uint64 sys_set_priority(long long prio)
+{
+	// TODO: your job is to complete the sys call
+	return -1;
 }
-
 
 uint64 sys_sbrk(int n)
 {
-        uint64 addr;
-        struct proc *p = curr_proc();
-        addr = p->program_brk;
-        if(growproc(n) < 0)
-                return -1;
-        return addr;
+	uint64 addr;
+	struct proc *p = curr_proc();
+	addr = p->program_brk;
+	if (growproc(n) < 0)
+		return -1;
+	return addr;
 }
 
 extern char trap_page[];
@@ -159,8 +199,8 @@ void syscall()
 		ret = sys_spawn(args[0]);
 		break;
 	case SYS_sbrk:
-                ret = sys_sbrk(args[0]);
-                break;
+		ret = sys_sbrk(args[0]);
+		break;
 	default:
 		ret = -1;
 		errorf("unknown syscall %d", id);
