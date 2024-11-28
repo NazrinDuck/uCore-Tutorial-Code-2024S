@@ -6,7 +6,8 @@
 #include "timer.h"
 #include "trap.h"
 
-uint64 sys_write(int fd, uint64 va, uint len)
+uint64
+sys_write(int fd, uint64 va, uint len)
 {
 	debugf("sys_write fd = %d str = %x, len = %d", fd, va, len);
 	if (fd != STDOUT)
@@ -21,7 +22,8 @@ uint64 sys_write(int fd, uint64 va, uint len)
 	return size;
 }
 
-uint64 sys_read(int fd, uint64 va, uint64 len)
+uint64
+sys_read(int fd, uint64 va, uint64 len)
 {
 	debugf("sys_read fd = %d str = %x, len = %d", fd, va, len);
 	if (fd != STDIN)
@@ -36,19 +38,22 @@ uint64 sys_read(int fd, uint64 va, uint64 len)
 	return len;
 }
 
-__attribute__((noreturn)) void sys_exit(int code)
+__attribute__((noreturn)) void
+sys_exit(int code)
 {
 	exit(code);
 	__builtin_unreachable();
 }
 
-uint64 sys_sched_yield()
+uint64
+sys_sched_yield()
 {
 	yield();
 	return 0;
 }
 
-uint64 sys_gettimeofday(uint64 val, int _tz)
+uint64
+sys_gettimeofday(uint64 val, int _tz)
 {
 	struct proc *p = curr_proc();
 	uint64 cycle = get_cycle();
@@ -59,24 +64,28 @@ uint64 sys_gettimeofday(uint64 val, int _tz)
 	return 0;
 }
 
-uint64 sys_getpid()
+uint64
+sys_getpid()
 {
 	return curr_proc()->pid;
 }
 
-uint64 sys_getppid()
+uint64
+sys_getppid()
 {
 	struct proc *p = curr_proc();
 	return p->parent == NULL ? IDLE_PID : p->parent->pid;
 }
 
-uint64 sys_clone()
+uint64
+sys_clone()
 {
 	debugf("fork!\n");
 	return fork();
 }
 
-uint64 sys_exec(uint64 va)
+uint64
+sys_exec(uint64 va)
 {
 	struct proc *p = curr_proc();
 	char name[200];
@@ -85,14 +94,16 @@ uint64 sys_exec(uint64 va)
 	return exec(name);
 }
 
-uint64 sys_wait(int pid, uint64 va)
+uint64
+sys_wait(int pid, uint64 va)
 {
 	struct proc *p = curr_proc();
 	int *code = (int *)useraddr(p->pagetable, va);
 	return wait(pid, code);
 }
 
-uint64 sys_spawn(uint64 va)
+uint64
+sys_spawn(uint64 va)
 {
 	struct proc *np;
 	struct proc *p = curr_proc();
@@ -113,38 +124,18 @@ uint64 sys_spawn(uint64 va)
 	np->parent = p;
 
 	add_task(np);
-	/*
-  	struct proc *np;
-	struct proc *p = curr_proc();
-	// Allocate process.
-	if ((np = allocproc()) == 0) {
-		panic("allocproc\n");
-	}
-	// Copy user memory from parent to child.
-	if (uvmcopy(p->pagetable, np->pagetable, p->max_page) < 0) {
-		panic("uvmcopy\n");
-	}
-	np->max_page = p->max_page;
-	// copy saved user registers.
-	*(np->trapframe) = *(p->trapframe);
-	// Cause fork to return 0 in the child.
-	np->trapframe->a0 = 0;
-	np->parent = p;
-	np->state = RUNNABLE;
-	add_task(np);
 	return np->pid;
- */
-	// TODO: your job is to complete the sys call
-	return -1;
 }
 
-uint64 sys_set_priority(long long prio)
+uint64
+sys_set_priority(long long prio)
 {
 	// TODO: your job is to complete the sys call
 	return -1;
 }
 
-uint64 sys_sbrk(int n)
+uint64
+sys_sbrk(int n)
 {
 	uint64 addr;
 	struct proc *p = curr_proc();
@@ -156,7 +147,8 @@ uint64 sys_sbrk(int n)
 
 extern char trap_page[];
 
-void syscall()
+void
+syscall()
 {
 	struct trapframe *trapframe = curr_proc()->trapframe;
 	int id = trapframe->a7, ret;
