@@ -1,7 +1,9 @@
 #include "syscall.h"
 #include "console.h"
+#include "const.h"
 #include "defs.h"
 #include "loader.h"
+#include "proc.h"
 #include "syscall_ids.h"
 #include "timer.h"
 #include "trap.h"
@@ -84,6 +86,99 @@ sys_clone()
 	return fork();
 }
 
+int
+sys_mmap(void *start, unsigned long long len, int port, int flag, int fd)
+{
+	debugf("mmap addr: %p, len: %d, port: %d", start, len, port);
+	if ((((uint64)start & 0xfff) != 0) || ((port & 0x7) == 0) ||
+	    ((port & (~0x7)) != 0) || (len > (1 << 30))) {
+		return -1;
+	}
+
+	if (len == 0) {
+		return 0;
+	}
+
+	int result = 0;
+	struct proc *p = curr_proc();
+
+	len = (len & (~0xfff)) + ((len & 0xfff) > 0 ? PAGE_SIZE : 0);
+
+	for (uint64 i = 0; i < len; i += PAGE_SIZE) {
+#ifdef NOT_USE_LAZY_MMAP
+		result |= mappages(p->pagetable, (uint64)start + i, PAGE_SIZE,
+				   (uint64)kalloc(), (port << 1) | PTE_U);
+		result = 0;
+		if (result != 0) {
+			if (i != 0) {
+				uvmunmap(p->pagetable,
+					 (uint64)start + i - PAGE_SIZE,
+					 (i >> 12), 1);
+			}
+			return -1;
+		}
+#else
+		result |= lazy_mappages(p->pagetable, (uint64)start + i,
+					PAGE_SIZE, (port << 1) | PTE_U);
+		if (result != 0) {
+			for (int j = 0; j < i - 1; j += PAGE_SIZE) {
+				lazy_uvmunmap(p->pagetable, (uint64)start + j);
+			}
+			return -1;
+		}
+#endif /* ifdef NOT_USE_LAZY_MMAP */
+	}
+	p->max_page = p->max_page > ((uint64)(start + len) / PAGE_SIZE) + 1 ?
+			      p->max_page :
+			      ((uint64)(start + len) / PAGE_SIZE) + 1;
+
+	return 0;
+}
+
+int
+sys_munmap(void *start, unsigned long long len)
+{
+	debugf("munmap addr: %p, len: %d", start, len);
+	if ((((uint64)start & 0xfff) != 0) || (len > (1 << 30))) {
+		return -1;
+	}
+	if (len == 0) {
+		return 0;
+	}
+
+	struct proc *p = curr_proc();
+	len = (len & (~0xfff)) + ((len & 0xfff) > 0 ? PAGE_SIZE : 0);
+
+#ifdef NOT_USE_LAZY_MMAP
+	int napges = (len >> 12);
+	for (int i = 0; i < napges; ++i) {
+		if (walkaddr(p->pagetable, (uint64)start + (i * PAGE_SIZE)) ==
+		    0) {
+			return -1;
+		}
+	}
+
+	uvmunmap(p->pagetable, (uint64)start, napges, 1);
+#else
+	uint64 a = (uint64)start;
+	for (; a < (uint64)start + len; a += PAGE_SIZE) {
+		switch (walkaddr(p->pagetable, a)) {
+		case 0:
+			return -1;
+			break;
+		case 1:
+			lazy_uvmunmap(p->pagetable, a);
+			break;
+		default:
+			uvmunmap(p->pagetable, a, 1, 1);
+			break;
+		}
+	}
+#endif /* ifdef NOT_USE_LAZY_MMAP */
+
+	return 0;
+}
+
 uint64
 sys_exec(uint64 va)
 {
@@ -130,8 +225,13 @@ sys_spawn(uint64 va)
 uint64
 sys_set_priority(long long prio)
 {
-	// TODO: your job is to complete the sys call
-	return -1;
+	if (prio <= 1) {
+		return -1;
+	}
+	struct proc *p = curr_proc();
+	p->prio = prio;
+	p->pass = BIG_STRIDE / p->prio;
+	return prio;
 }
 
 uint64
@@ -169,6 +269,9 @@ syscall()
 	case SYS_sched_yield:
 		ret = sys_sched_yield();
 		break;
+	case SYS_setpriority:
+		ret = sys_set_priority(args[0]);
+		break;
 	case SYS_gettimeofday:
 		ret = sys_gettimeofday(args[0], args[1]);
 		break;
@@ -192,6 +295,13 @@ syscall()
 		break;
 	case SYS_sbrk:
 		ret = sys_sbrk(args[0]);
+		break;
+	case SYS_mmap:
+		ret = sys_mmap((void *)args[0], args[1], args[2], args[3],
+			       args[4]);
+		break;
+	case SYS_munmap:
+		ret = sys_munmap((void *)args[0], args[1]);
 		break;
 	default:
 		ret = -1;

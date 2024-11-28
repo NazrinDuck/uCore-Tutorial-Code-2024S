@@ -1,6 +1,7 @@
 #include "proc.h"
 #include "defs.h"
 #include "loader.h"
+#include "log.h"
 #include "trap.h"
 #include "vm.h"
 #include "queue.h"
@@ -14,18 +15,21 @@ struct proc *current_proc;
 struct proc idle;
 struct queue task_queue;
 
-int threadid()
+int
+threadid()
 {
 	return curr_proc()->pid;
 }
 
-struct proc *curr_proc()
+struct proc *
+curr_proc()
 {
 	return current_proc;
 }
 
 // initialize the proc table at boot time.
-void proc_init()
+void
+proc_init()
 {
 	struct proc *p;
 	for (p = pool; p < &pool[NPROC]; p++) {
@@ -39,13 +43,15 @@ void proc_init()
 	init_queue(&task_queue);
 }
 
-int allocpid()
+int
+allocpid()
 {
 	static int PID = 1;
 	return PID++;
 }
 
-struct proc *fetch_task()
+struct proc *
+fetch_task()
 {
 	int index = pop_queue(&task_queue);
 	if (index < 0) {
@@ -56,16 +62,18 @@ struct proc *fetch_task()
 	return pool + index;
 }
 
-void add_task(struct proc *p)
+void
+add_task(struct proc *p)
 {
-	push_queue(&task_queue, p - pool);
+	push_queue(&task_queue, p - pool, p->stride);
 	debugf("add task %d(pid=%d) to task queue\n", p - pool, p->pid);
 }
 
 // Look in the process table for an UNUSED proc.
 // If found, initialize state required to run in the kernel.
 // If there are no free procs, or a memory allocation fails, return 0.
-struct proc *allocproc()
+struct proc *
+allocproc()
 {
 	struct proc *p;
 	for (p = pool; p < &pool[NPROC]; p++) {
@@ -85,7 +93,7 @@ found:
 	p->exit_code = 0;
 	p->pagetable = uvmcreate((uint64)p->trapframe);
 	p->program_brk = 0;
-        p->heap_bottom = 0;
+	p->heap_bottom = 0;
 	memset(&p->context, 0, sizeof(p->context));
 	memset((void *)p->kstack, 0, KSTACK_SIZE);
 	memset((void *)p->trapframe, 0, TRAP_PAGE_SIZE);
@@ -99,7 +107,8 @@ found:
 //  - swtch to start running that process.
 //  - eventually that process transfers control
 //    via swtch back to the scheduler.
-void scheduler()
+void
+scheduler()
 {
 	struct proc *p;
 	for (;;) {
@@ -122,6 +131,7 @@ void scheduler()
 		}
 		tracef("swtich to proc %d", p - pool);
 		p->state = RUNNING;
+		p->stride += p->pass;
 		current_proc = p;
 		swtch(&idle.context, &p->context);
 	}
@@ -134,7 +144,8 @@ void scheduler()
 // be proc->intena and proc->noff, but that would
 // break in the few places where a lock is held but
 // there's no process.
-void sched()
+void
+sched()
 {
 	struct proc *p = curr_proc();
 	if (p->state == RUNNING)
@@ -143,7 +154,8 @@ void sched()
 }
 
 // Give up the CPU for one scheduling round.
-void yield()
+void
+yield()
 {
 	current_proc->state = RUNNABLE;
 	add_task(current_proc);
@@ -152,22 +164,26 @@ void yield()
 
 // Free a process's page table, and free the
 // physical memory it refers to.
-void freepagetable(pagetable_t pagetable, uint64 max_page)
+void
+freepagetable(pagetable_t pagetable, uint64 max_page)
 {
 	uvmunmap(pagetable, TRAMPOLINE, 1, 0);
 	uvmunmap(pagetable, TRAPFRAME, 1, 0);
 	uvmfree(pagetable, max_page);
 }
 
-void freeproc(struct proc *p)
+void
+freeproc(struct proc *p)
 {
+	debugf("free pagetable %p, max page: %d", p->pagetable, p->max_page);
 	if (p->pagetable)
 		freepagetable(p->pagetable, p->max_page);
 	p->pagetable = 0;
 	p->state = UNUSED;
 }
 
-int fork()
+int
+fork()
 {
 	struct proc *np;
 	struct proc *p = curr_proc();
@@ -190,7 +206,8 @@ int fork()
 	return np->pid;
 }
 
-int exec(char *name)
+int
+exec(char *name)
 {
 	int id = get_id_by_name(name);
 	if (id < 0)
@@ -202,7 +219,8 @@ int exec(char *name)
 	return 0;
 }
 
-int wait(int pid, int *code)
+int
+wait(int pid, int *code)
 {
 	struct proc *np;
 	int havekids;
@@ -234,7 +252,8 @@ int wait(int pid, int *code)
 }
 
 // Exit the current process.
-void exit(int code)
+void
+exit(int code)
 {
 	struct proc *p = curr_proc();
 	p->exit_code = code;
@@ -256,22 +275,25 @@ void exit(int code)
 
 // Grow or shrink user memory by n bytes.
 // Return 0 on succness, -1 on failure.
-int growproc(int n)
+int
+growproc(int n)
 {
-        uint64 program_brk;
-        struct proc *p = curr_proc();
-        program_brk = p->program_brk;
-        int new_brk = program_brk + n - p->heap_bottom;
-        if(new_brk < 0){
-                return -1;
-        }
-        if(n > 0){
-                if((program_brk = uvmalloc(p->pagetable, program_brk, program_brk + n, PTE_W)) == 0) {
-                        return -1;
-                }
-        } else if(n < 0){
-                program_brk = uvmdealloc(p->pagetable, program_brk, program_brk + n);
-        }
-        p->program_brk = program_brk;
-        return 0;
+	uint64 program_brk;
+	struct proc *p = curr_proc();
+	program_brk = p->program_brk;
+	int new_brk = program_brk + n - p->heap_bottom;
+	if (new_brk < 0) {
+		return -1;
+	}
+	if (n > 0) {
+		if ((program_brk = uvmalloc(p->pagetable, program_brk,
+					    program_brk + n, PTE_W)) == 0) {
+			return -1;
+		}
+	} else if (n < 0) {
+		program_brk =
+			uvmdealloc(p->pagetable, program_brk, program_brk + n);
+	}
+	p->program_brk = program_brk;
+	return 0;
 }

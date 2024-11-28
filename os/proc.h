@@ -7,6 +7,7 @@
 
 #define NPROC (512)
 #define FD_BUFFER_SIZE (16)
+#define BIG_STRIDE (0x10000)
 
 struct file;
 
@@ -42,6 +43,9 @@ struct proc {
 	struct trapframe *trapframe; // data page for trampoline.S
 	struct context context; // swtch() here to run process
 	uint64 max_page;
+	long long prio; //Priority
+	uint64 stride; // Length for runnig
+	uint64 pass; // step length
 	struct proc *parent; // Parent process
 	uint64 exit_code;
 	struct file *files[FD_BUFFER_SIZE];

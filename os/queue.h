@@ -9,10 +9,11 @@ struct queue {
 	int front;
 	int tail;
 	int empty;
+	unsigned long long stride[QUEUE_SIZE];
 };
 
 void init_queue(struct queue *);
-void push_queue(struct queue *, int);
+void push_queue(struct queue *, int, unsigned long long);
 int pop_queue(struct queue *);
 
 #endif // QUEUE_H

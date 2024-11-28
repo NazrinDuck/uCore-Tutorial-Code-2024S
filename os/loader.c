@@ -1,5 +1,6 @@
 #include "loader.h"
 #include "defs.h"
+#include "proc.h"
 #include "trap.h"
 
 static int app_num;
@@ -8,7 +9,8 @@ extern char _app_num[], _app_names[], INIT_PROC[];
 char names[MAX_APP_NUM][MAX_STR_LEN];
 
 // Get user progs' infomation through pre-defined symbol in `link_app.S`
-void loader_init()
+void
+loader_init()
 {
 	char *s;
 	app_info_ptr = (uint64 *)_app_num;
@@ -24,7 +26,8 @@ void loader_init()
 	}
 }
 
-int get_id_by_name(char *name)
+int
+get_id_by_name(char *name)
 {
 	for (int i = 0; i < app_num; ++i) {
 		if (strncmp(name, names[i], 100) == 0)
@@ -34,7 +37,8 @@ int get_id_by_name(char *name)
 	return -1;
 }
 
-int bin_loader(uint64 start, uint64 end, struct proc *p)
+int
+bin_loader(uint64 start, uint64 end, struct proc *p)
 {
 	if (p == NULL || p->state == UNUSED)
 		panic("...");
@@ -77,18 +81,23 @@ int bin_loader(uint64 start, uint64 end, struct proc *p)
 	p->trapframe->epc = va_start;
 	p->max_page = PGROUNDUP(p->ustack + USTACK_SIZE - 1) / PAGE_SIZE;
 	p->program_brk = p->ustack + USTACK_SIZE;
-        p->heap_bottom = p->ustack + USTACK_SIZE;
+	p->heap_bottom = p->ustack + USTACK_SIZE;
 	p->state = RUNNABLE;
+	p->stride = 0;
+	p->prio = 16;
+	p->pass = BIG_STRIDE / p->prio;
 	return 0;
 }
 
-int loader(int app_id, struct proc *p)
+int
+loader(int app_id, struct proc *p)
 {
 	return bin_loader(app_info_ptr[app_id], app_info_ptr[app_id + 1], p);
 }
 
 // load all apps and init the corresponding `proc` structure.
-int load_init_app()
+int
+load_init_app()
 {
 	int id = get_id_by_name(INIT_PROC);
 	if (id < 0)
